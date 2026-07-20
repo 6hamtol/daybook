@@ -3,8 +3,8 @@
   "name": "daybook",
   "description": "Dated per-query markdown journal of your Claude Code sessions.",
   "owner": {
-    "name": "hamtolchu",
-    "url": "https://github.com/hamtolchu"
+    "name": "6hamtol",
+    "url": "https://github.com/6hamtol"
   },
   "plugins": [
     {

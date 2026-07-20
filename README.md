@@ -53,7 +53,7 @@ model: claude-opus-4-8
 ## Install
 
 ```
-/plugin marketplace add hamtolchu/daybook
+/plugin marketplace add 6hamtol/daybook
 /plugin install daybook@daybook
 ```
 
