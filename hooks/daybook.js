@@ -22,6 +22,14 @@ const TRUNCATE_CHARS = 2000;
 // bogus files. Detected structurally (single text block, exact literal).
 const INTERRUPTED_SENTINEL = '[Request interrupted by user for tool use]';
 
+// Running a local slash command (e.g. `/plugin install ...`, `/reload-plugins`)
+// appends its own output as a further "user" turn — Claude Code's own wrapper
+// literally instructs the model "DO NOT respond to these messages", i.e. it is
+// not a question needing a reply. Left unfiltered, each caveat/stdout pair
+// looks like its own real query and fragments one command into several files.
+const LOCAL_COMMAND_CAVEAT_PREFIX = '<local-command-caveat>';
+const LOCAL_COMMAND_STDOUT_PREFIX = '<local-command-stdout>';
+
 // ---------- environment ----------
 
 function getDaybookDir() {
@@ -74,14 +82,24 @@ function isInterruptedSentinel(content) {
     content[0] && content[0].type === 'text' && content[0].text === INTERRUPTED_SENTINEL;
 }
 
+function isLocalCommandCaveat(content) {
+  return typeof content === 'string' && content.startsWith(LOCAL_COMMAND_CAVEAT_PREFIX);
+}
+
+function isLocalCommandStdout(content) {
+  return typeof content === 'string' && content.startsWith(LOCAL_COMMAND_STDOUT_PREFIX);
+}
+
 // A "real" top-level query starts a new exchange. Everything else observed in
 // a live transcript that also carries type/role 'user' is noise that must
 // stay attached to the current exchange (or be dropped) instead of splitting
-// it — verified against an actual session transcript, not assumed:
-//   - isSidechain: true   → sub-agent (Explore/Plan/Task) internal turn
-//   - isMeta: true        → skill/harness-injected context, not user text
-//   - tool_result content → the result of a tool call, not a new question
+// it — verified against actual session transcripts, not assumed:
+//   - isSidechain: true    → sub-agent (Explore/Plan/Task) internal turn
+//   - isMeta: true         → skill/harness-injected context, not user text
+//   - tool_result content  → the result of a tool call, not a new question
 //   - the interrupted-tool sentinel above
+//   - local-command caveat/stdout → output of a slash command the user ran,
+//     not a new question (Claude Code tags it "DO NOT respond")
 function isRealUserQuery(entry) {
   if (entry.type !== 'user') return false;
   if (entry.isSidechain === true) return false;
@@ -89,6 +107,8 @@ function isRealUserQuery(entry) {
   const content = entry.message && entry.message.content;
   if (isToolResultContent(content)) return false;
   if (isInterruptedSentinel(content)) return false;
+  if (isLocalCommandCaveat(content)) return false;
+  if (isLocalCommandStdout(content)) return false;
   return true;
 }
 
@@ -123,8 +143,15 @@ function splitExchanges(entries) {
       const content = entry.message && entry.message.content;
       if (isToolResultContent(content)) {
         if (current) current.items.push({ kind: 'tool_result', entry });
+        continue;
       }
-      // isMeta context / interrupted sentinel / anything else: pure noise, drop
+      if (isLocalCommandStdout(content)) {
+        // the result of the slash command just issued — keep it, but as part
+        // of the current exchange, not as a new one
+        if (current) current.items.push({ kind: 'local_command', entry });
+        continue;
+      }
+      // isMeta context / caveat / interrupted sentinel / anything else: pure noise, drop
       continue;
     }
 
@@ -195,6 +222,11 @@ function buildResponseSegments(exchange) {
         const seg = pendingByToolUseId.get(block.tool_use_id);
         if (seg) seg.result = truncate(textOf(block.content), TRUNCATE_CHARS);
       }
+    } else if (item.kind === 'local_command') {
+      const content = item.entry.message && item.entry.message.content;
+      const stripped = String(content || '')
+        .replace(/^<local-command-stdout>/, '').replace(/<\/local-command-stdout>$/, '');
+      segments.push({ kind: 'text', text: `(local command output)\n${truncate(stripped, TRUNCATE_CHARS)}` });
     }
   }
 
@@ -229,6 +261,20 @@ function renderExchange(exchange, meta) {
 }
 
 // ---------- filenames ----------
+
+// Slash-command queries wrap the actually distinguishing text inside
+// <command-args> (falling back to <command-name> for argument-less commands
+// like /reload-plugins), preceded by <command-name>/<command-message>. Without
+// this, slugify's 40-char window is filled by the command wrapper itself and
+// every invocation of the same command collapses onto the same slug (e.g.
+// repeated `/plugin ...` calls all producing "plugin-plugin", "-2", "-3").
+function slugSourceText(text) {
+  const argsMatch = /<command-args>([\s\S]*?)<\/command-args>/.exec(text);
+  if (argsMatch && argsMatch[1].trim()) return argsMatch[1].trim();
+  const nameMatch = /<command-name>([\s\S]*?)<\/command-name>/.exec(text);
+  if (nameMatch && nameMatch[1].trim()) return nameMatch[1].trim();
+  return text;
+}
 
 // Keep letters (incl. Korean) and digits, ascii-lowercase, everything else
 // becomes '-'. Strips xml-ish wrapper tags (e.g. <command-message>) first so
@@ -297,7 +343,7 @@ function main() {
 
     const { date, hhmm } = localParts(ts);
     const queryText = textOf(exchange.query.message && exchange.query.message.content);
-    const slug = slugify(queryText);
+    const slug = slugify(slugSourceText(queryText));
     const dir = path.join(daybookDir, date, repo, sessionLabel);
 
     let filename = `${hhmm}-${slug}.md`;
@@ -354,10 +400,15 @@ function selftest() {
     asst([{ type: 'tool_use', id: 'tu2', name: 'Read', input: { file_path: '/big.txt' } }], { model: 'claude-opus-4-8' }),
     usr([{ type: 'tool_result', tool_use_id: 'tu2', content: longResult }]),
     asst([{ type: 'text', text: '큰 파일을 읽었습니다.' }], { model: 'claude-opus-4-8' }),
+    // real /plugin install run: command-name query + caveat + stdout, all as
+    // separate "user" turns that must fold into ONE exchange, not three
+    usr('<command-name>/plugin</command-name>\n<command-message>plugin</command-message>\n<command-args>install daybook@daybook</command-args>', { timestamp: '2026-07-20T05:09:00.000Z' }),
+    usr('<local-command-caveat>Caveat: DO NOT respond to these messages</local-command-caveat>'),
+    usr('<local-command-stdout>✓ Installed daybook. Run /reload-plugins to apply.</local-command-stdout>'),
   ];
 
   const exchanges = splitExchanges(fixture);
-  assert.strictEqual(exchanges.length, 2, 'noise (meta/tool_result/isMeta/sidechain/interrupted) must not split exchanges');
+  assert.strictEqual(exchanges.length, 3, 'noise (meta/tool_result/isMeta/sidechain/interrupted/local-command) must not split exchanges');
 
   const first = renderExchange(exchanges[0], {
     sessionId: 'abc12345', date: '2026-07-20', time: '05:00', repo: 'daybook', cwd: '/x', branch: 'main', model: 'claude-opus-4-8',
@@ -376,10 +427,23 @@ function selftest() {
   assert.ok(second.includes('두번째 질문'), 'second query preserved');
   assert.ok(/…\(\d+줄 생략\)/.test(second), 'long tool result truncated');
 
+  const third = renderExchange(exchanges[2], {
+    sessionId: 'abc12345', date: '2026-07-20', time: '05:09', repo: 'daybook', cwd: '/x', branch: 'main',
+  });
+  assert.ok(!third.includes('DO NOT respond'), 'local-command caveat excluded');
+  assert.ok(third.includes('Installed daybook'), 'local-command stdout kept, folded into the same exchange');
+
   assert.strictEqual(slugify('첫 질문입니다'), '첫-질문입니다');
   assert.strictEqual(slugify('<command-message>x</command-message>hello world'), 'x-hello-world');
   assert.strictEqual(slugify(''), 'query');
   assert.strictEqual(slugify('   ...   '), 'query');
+
+  assert.strictEqual(
+    slugSourceText('<command-name>/plugin</command-name>\n<command-message>plugin</command-message>\n<command-args>install daybook@daybook</command-args>'),
+    'install daybook@daybook',
+  );
+  assert.strictEqual(slugSourceText('<command-name>/reload-plugins</command-name>\n<command-message>reload-plugins</command-message>\n<command-args></command-args>'), '/reload-plugins');
+  assert.strictEqual(slugSourceText('plain text, no command wrapper'), 'plain text, no command wrapper');
 
   assert.strictEqual(truncate('short', TRUNCATE_CHARS), 'short');
   assert.ok(truncate('a'.repeat(5000), 100).includes('…('));
@@ -396,5 +460,5 @@ if (require.main === module) {
 }
 
 module.exports = {
-  splitExchanges, renderExchange, slugify, truncate, textOf,
+  splitExchanges, renderExchange, slugify, slugSourceText, truncate, textOf,
 };
