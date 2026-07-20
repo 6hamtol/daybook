@@ -25,7 +25,7 @@ $DAYBOOK_DIR/<YYYY-MM-DD>/<repo>/<HHMM-sessionId8>/<HHMM-slug>.md
 Example:
 
 ```
-~/daybook/2026-07-20/ponytail/0801-3b4dedb3/0838-세션마다-기록되는-transcript.md
+~/.daybook/2026-07-20/ponytail/0801-3b4dedb3/0838-세션마다-기록되는-transcript.md
 ```
 ```markdown
 ---
@@ -63,7 +63,7 @@ That's it — the plugin registers its own `Stop`/`SessionEnd` hooks
 
 ### Change where files are saved
 
-Default output folder is `~/daybook`. Override with an environment variable
+Default output folder is `~/.daybook`. Override with an environment variable
 (e.g. to point at an Obsidian vault or an iCloud-synced folder):
 
 ```

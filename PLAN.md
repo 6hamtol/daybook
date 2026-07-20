@@ -13,7 +13,7 @@ ponytail이 SessionStart hook으로 컨텍스트를 "주입"하듯, daybook은 l
 
 ## 결정 사항 (사용자 확정)
 
-- **이름**: `daybook`. 출력 폴더 기본 `~/daybook`, 환경변수 `DAYBOOK_DIR`로 override(다중 사용자 대응).
+- **이름**: `daybook`. 출력 폴더 기본 `~/.daybook`, 환경변수 `DAYBOOK_DIR`로 override(다중 사용자 대응).
 - **트리거**: `Stop` hook (+ `SessionEnd` 백업). 매 응답마다 transcript 전체를 파싱해
   각 질의 파일을 결정적 경로에 덮어쓴다 → 크래시/강제종료에도 유실 없고 항상 최신.
 - **단위**: 질의(exchange) 1개 = md 파일 1개. Stop 경계가 곧 질의 경계라 1:1로 맞는다.

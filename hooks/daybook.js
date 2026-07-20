@@ -33,7 +33,7 @@ const LOCAL_COMMAND_STDOUT_PREFIX = '<local-command-stdout>';
 // ---------- environment ----------
 
 function getDaybookDir() {
-  return process.env.DAYBOOK_DIR || path.join(os.homedir(), 'daybook');
+  return process.env.DAYBOOK_DIR || path.join(os.homedir(), '.daybook');
 }
 
 function repoNameFor(cwd) {
