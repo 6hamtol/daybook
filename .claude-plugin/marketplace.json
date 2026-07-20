@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "daybook",
+  "description": "Dated per-query markdown journal of your Claude Code sessions.",
+  "owner": {
+    "name": "hamtolchu",
+    "url": "https://github.com/hamtolchu"
+  },
+  "plugins": [
+    {
+      "name": "daybook",
+      "description": "Save every session as reviewable markdown.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

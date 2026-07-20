@@ -1,0 +1,10 @@
+{
+  "name": "daybook",
+  "version": "0.1.0",
+  "description": "Save every Claude Code session as dated, per-query markdown for later review.",
+  "author": {
+    "name": "seungjaey",
+    "url": "https://github.com/seungjaey"
+  },
+  "hooks": "./hooks/daybook-hooks.json"
+}
